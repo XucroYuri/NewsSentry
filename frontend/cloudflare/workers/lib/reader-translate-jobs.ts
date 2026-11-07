@@ -17,6 +17,7 @@ export const TRANSLATION_CHUNK_BUDGET_MS = 6 * 60_000;
 export const TRANSLATION_MAX_LIFETIME_MS = 2 * 60 * 60_000;
 export const TRANSLATION_REENQUEUE_MS = 60_000;
 export const TRANSLATION_MAX_EXECUTIONS = 2;
+export const TRANSLATION_MAX_ATTEMPTS = 3;
 
 interface TranslationMessage {
   jobId: string;
@@ -86,15 +87,20 @@ function database(env: ReaderTranslationJobsEnv): D1DatabaseSession {
 }
 
 async function expireJobs(db: D1DatabaseSession, now: number, id?: string) {
-  return db.prepare(
+  return db.batch([db.prepare(
     `UPDATE reader_translation_jobs SET status = 'timed_out', error_code = 'TRANSLATION_TIMED_OUT',
      error_message = '翻译第 ' || COALESCE(${currentChunkSql} + 1, 1) || ' 段超时，请重试或打开原文。', error_status = 504,
      updated_at = ?, finished_at = ?, lease_until = NULL
      WHERE status IN ('queued', 'running') ${id === undefined ? "" : "AND id = ?"}
-     AND (created_at + ${lifetimeSql} <= ? OR (execution_count >= ? AND
-       (status = 'queued' OR lease_until < ?)))`,
-  ).bind(now, now, ...(id === undefined ? [] : [id]),
-    now, TRANSLATION_MAX_EXECUTIONS, now).run();
+     AND created_at + ${lifetimeSql} <= ?`,
+  ).bind(now, now, ...(id === undefined ? [] : [id]), now),
+  db.prepare(
+    `UPDATE reader_translation_jobs SET status = 'failed', error_code = 'TRANSLATION_EXECUTIONS_EXHAUSTED',
+     error_message = '翻译第 ' || COALESCE(${currentChunkSql} + 1, 1) || ' 段执行次数耗尽，请重试或打开原文。', error_status = 503,
+     updated_at = ?, finished_at = ?, lease_until = NULL
+     WHERE status IN ('queued', 'running') ${id === undefined ? "" : "AND id = ?"}
+     AND execution_count >= ? AND (status = 'queued' OR lease_until < ?)`,
+  ).bind(now, now, ...(id === undefined ? [] : [id]), TRANSLATION_MAX_EXECUTIONS, now)]);
 }
 
 function jobResponse(job: TranslationJob): Response {
@@ -132,7 +138,6 @@ export async function submitTranslationJob(
     throw new ReaderError(503, "TRANSLATION_SUBMIT_DISABLED", "翻译任务提交已暂停，请使用原文。");
   }
   const input = await parseTranslationInput(request);
-  const chunks = splitTranslationMarkdown(input.markdown);
   const cached = await readTranslationCache(input, env, owner);
   const db = database(env);
   if (!env.READER_TRANSLATE_QUEUE && !cached) {
@@ -141,10 +146,50 @@ export async function submitTranslationJob(
   const key = await translationCacheKey(input, env, owner);
   const dedupe = await markdownHash(key);
   const now = Date.now();
+  const previous = await db.prepare(
+    `${jobSelect} WHERE dedupe_key = ? AND owner = ? ORDER BY attempt_count DESC LIMIT 1`,
+  ).bind(dedupe, owner).first<TranslationJob>();
+  if (previous) {
+    if (input.retry && ["failed", "timed_out"].includes(previous.status)
+      && previous.attempt_count < TRANSLATION_MAX_ATTEMPTS) {
+      const resumed = await db.batch<TranslationJob>([
+        db.prepare(
+          `UPDATE reader_translation_jobs SET status = 'queued', generation = generation + 1,
+           attempt_count = attempt_count + 1, execution_count = 0, created_at = ?, updated_at = ?,
+           started_at = NULL, finished_at = NULL, lease_until = NULL, next_attempt_at = 0,
+           last_enqueued_at = ?, error_code = NULL, error_message = NULL, error_status = NULL, result_json = NULL
+           WHERE id = ? AND owner = ? AND dedupe_key = ? AND generation = ?
+             AND status IN ('failed', 'timed_out') AND attempt_count < ? RETURNING *`,
+        ).bind(now, now, now, previous.id, owner, dedupe, previous.generation, TRANSLATION_MAX_ATTEMPTS),
+        db.prepare(
+          `UPDATE reader_translation_chunks SET execution_count = 0, generation = ?, finished_at = NULL
+           WHERE job_id = ? AND result_json IS NULL
+             AND EXISTS(SELECT 1 FROM reader_translation_jobs WHERE id = ? AND owner = ?
+               AND status = 'queued' AND generation = ?)`,
+        ).bind(previous.generation + 1, previous.id, previous.id, owner, previous.generation + 1),
+      ]);
+      if (resumed[0].results.length) {
+        const next = await db.prepare(
+          "SELECT MIN(chunk_index) AS chunk_index FROM reader_translation_chunks WHERE job_id = ? AND result_json IS NULL",
+        ).bind(previous.id).first<{ chunk_index: number | null }>();
+        try {
+          await env.READER_TRANSLATE_QUEUE!.send({
+            jobId: previous.id, generation: previous.generation + 1, chunk_index: next?.chunk_index ?? 0,
+          });
+        } catch {
+          console.warn("reader translation retry deferred to sweeper");
+        }
+      }
+    }
+    const current = await db.prepare(`${jobSelect} WHERE id = ? AND owner = ?`)
+      .bind(previous.id, owner).first<TranslationJob>();
+    return jobResponse(current!);
+  }
+  const chunks = splitTranslationMarkdown(input.markdown);
   const id = crypto.randomUUID();
   const insert = db.prepare(
     `WITH latest AS (
-       SELECT status, attempt_count FROM reader_translation_jobs WHERE dedupe_key = ?
+       SELECT attempt_count FROM reader_translation_jobs WHERE dedupe_key = ? AND owner = ?
        ORDER BY attempt_count DESC LIMIT 1
      )
      INSERT OR IGNORE INTO reader_translation_jobs (
@@ -153,11 +198,10 @@ export async function submitTranslationJob(
      )
      SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT attempt_count FROM latest), 0) + 1, ?, ?, ?, ?, ?, ?
      WHERE NOT EXISTS (SELECT 1 FROM latest)
-        OR (? = 1 AND (SELECT status FROM latest) IN ('failed', 'timed_out'))
      RETURNING *`,
-  ).bind(dedupe, id, owner, dedupe, input.contentHash, input.targetLang, input.sourceLang ?? "",
+  ).bind(dedupe, owner, id, owner, dedupe, input.contentHash, input.targetLang, input.sourceLang ?? "",
     input.markdown, cached ? "succeeded" : "queued", now, now, cached ? now : null,
-    key, cached ? JSON.stringify({ ...cached, cached: true }) : null, now, input.retry ? 1 : 0);
+    key, cached ? JSON.stringify({ ...cached, cached: true }) : null, now);
   const insertedBatch = await db.batch<TranslationJob>([
     insert,
     ...chunks.map((markdown, index) => db.prepare(
@@ -225,7 +269,9 @@ export async function processTranslationJob(
   ).bind(id).all<TranslationChunk>();
   const chunk = chunks[chunkIndex];
   if (!chunk || chunk.result_json !== null || chunk.generation !== job.generation) return;
-  const expiresAt = Math.min(now + TRANSLATION_EXECUTION_MS, job.created_at + translationLifetime(chunks.length));
+  const lifetimeEndsAt = job.created_at + translationLifetime(chunks.length);
+  // 领取和读取分段共用 120 秒窗口；Magpie 自身计时从 fetch 开始，实际可用预算可能略短。
+  const expiresAt = Math.min(now + TRANSLATION_EXECUTION_MS, lifetimeEndsAt);
   const controller = new AbortController();
   let rejectDeadline: (reason: unknown) => void = () => {};
   const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
@@ -295,10 +341,13 @@ export async function processTranslationJob(
     let failure = error instanceof ReaderError ? error
       : new ReaderError(503, "TRANSLATION_UNAVAILABLE", "翻译后台暂不可用，请重试或打开原文。");
     const finished = Date.now();
-    if (finished >= expiresAt) failure = new ReaderError(504, "TRANSLATION_TIMED_OUT", "翻译任务超时。");
-    if ((failure.status === 429 || failure.code === "TRANSLATION_INVALID")
-      && job.execution_count < TRANSLATION_MAX_EXECUTIONS
-      && finished < expiresAt) {
+    const lifetimeExpired = finished >= lifetimeEndsAt;
+    if (lifetimeExpired || finished >= expiresAt) {
+      failure = new ReaderError(504, "TRANSLATION_TIMED_OUT", lifetimeExpired ? "翻译任务生命周期已耗尽。" : "翻译段执行超时。");
+    }
+    if ((failure.status === 429 || failure.code === "TRANSLATION_INVALID" || failure.code === "TRANSLATION_TIMED_OUT")
+      && chunk.execution_count < TRANSLATION_MAX_EXECUTIONS
+      && !lifetimeExpired) {
       const delaySeconds = failure.status === 429 ? failure.retryDelaySeconds ?? 60 : 0;
       const released = await db.prepare(
         `UPDATE reader_translation_jobs SET status = 'queued', lease_until = NULL, updated_at = ?,
@@ -314,7 +363,7 @@ export async function processTranslationJob(
       `UPDATE reader_translation_jobs SET status = ?, error_code = ?, error_message = ?, error_status = ?,
        updated_at = ?, finished_at = ?, lease_until = NULL
        WHERE id = ? AND generation = ? AND status = 'running'`,
-    ).bind(failure.code === "TRANSLATION_TIMED_OUT" ? "timed_out" : "failed",
+    ).bind(lifetimeExpired ? "timed_out" : "failed",
       failure.code, `第 ${chunkIndex + 1}/${chunks.length} 段：${failure.message}`, failure.status, finished, finished, id, job.generation).run();
   } finally {
     clearTimeout(timeout);

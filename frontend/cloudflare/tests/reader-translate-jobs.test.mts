@@ -122,7 +122,7 @@ for (const [label, upstream, code, errorStatus] of [
     const retries = await Promise.all(Array.from({ length: 8 }, async () =>
       (await submitTranslationJob(request({ retry: true }), fixture.env, "user-a")).json()));
     assert.equal(new Set(retries.map((retry) => retry.jobId)).size, 1);
-    assert.notEqual(retries[0].jobId, job.jobId);
+    assert.equal(retries[0].jobId, job.jobId);
     assert.equal(retries[0].attemptCount, 2);
     assert.equal(retries[0].status, "queued");
     assert.equal(calls, expectedCalls);
@@ -148,11 +148,11 @@ for (const state of ["running", "queued"]) {
     const retry = await (await submitTranslationJob(request({ retry: true }), fixture.env, "user-a")).json();
     assert.equal(retry.status, "queued");
     assert.equal(retry.attemptCount, 2);
-    assert.notEqual(retry.jobId, job.jobId);
+    assert.equal(retry.jobId, job.jobId);
   });
 }
 
-test("per-Magpie attempt guard stays 120 seconds and records timed_out without fallback or replay", async (context) => {
+test("per-Magpie attempt guard stays 120 seconds and requeues the segment without fallback", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const fixture = translationFixture({ MAGPIE_IDLE_GROUP: "group/reader-idle" });
   context.after(() => fixture.sqlite.close());
@@ -171,11 +171,12 @@ test("per-Magpie attempt guard stays 120 seconds and records timed_out without f
   context.mock.timers.tick(1);
   await running;
   const result = await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json();
-  assert.equal(result.status, "timed_out");
+  assert.equal(result.status, "queued");
+  assert.equal(fixture.queue.at(-1)!.generation, 1);
   assert.equal(calls, 1);
 });
 
-test("job-level ceiling bounds a provider that ignores abort and late result cannot overwrite timed_out", async (context) => {
+test("chunk-level ceiling bounds a provider that ignores abort and late result cannot overwrite queued retry", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const fixture = translationFixture();
   context.after(() => fixture.sqlite.close());
@@ -187,10 +188,10 @@ test("job-level ceiling bounds a provider that ignores abort and late result can
   await started.promise;
   context.mock.timers.tick(TRANSLATION_EXECUTION_MS);
   await running;
-  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "timed_out");
+  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "queued");
   finish.resolve(response());
   await Promise.resolve();
-  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "timed_out");
+  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "queued");
 });
 
 test("validated owner cache creates a succeeded D1 record independent of KV visibility", async (context) => {
@@ -312,7 +313,7 @@ test("expired claimed consumer and exhausted execution budget converge without p
     "UPDATE reader_translation_jobs SET status='running', generation=2, execution_count=2, lease_until=?",
   ).run(Date.now() - 1);
   await sweepTranslationJobs(fixture.env);
-  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "timed_out");
+  assert.equal((await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json()).status, "failed");
   let acked = 0;
   await handleTranslationQueueBatch({ messages: [{
     body: { jobId: job.jobId, generation: 2 }, ack() { acked++; }, retry() { assert.fail("terminal"); },
@@ -517,7 +518,7 @@ test("exact queue allowlist preserves shadow queues; preview reader/DLQ and dedi
   assert.equal(fixture.sqlite.prepare("SELECT status FROM reader_translation_jobs").get()!.status, "failed");
   const next = await (await submitTranslationJob(request({ retry: true }), fixture.env, "user-a")).json();
   await dispatchReaderQueue({ ...batch, queue: READER_TRANSLATE_QUEUE_NAME,
-    messages: [{ ...batch.messages[0], body: { jobId: next.jobId, generation: 0 } }],
+    messages: [{ ...batch.messages[0], body: fixture.queue.at(-1) }],
   }, { ...fixture.env, MAGPIE_BASE_URL: undefined }, async () => { assert.fail("reader shadow"); });
   assert.equal(fixture.sqlite.prepare("SELECT status FROM reader_translation_jobs WHERE id=?").get(next.jobId)!.status, "failed");
   let scheduled = 0;

@@ -177,7 +177,7 @@ export async function translationCacheKey(
     env.NEWS_SENTRY_ENVIRONMENT ?? "unconfigured", owner,
   ]));
   const options = await markdownHash(JSON.stringify([
-    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r5-structure-v1",
+    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r6-structure-v1",
     input.contentHash, input.sourceLang ?? "", input.targetLang,
   ]));
   return `reader-tr:${scope}:${options}`;

@@ -58,7 +58,7 @@ export function ReaderView({ route, adapter, demo = false }: { route: ReaderRout
   const language = hasTranslation ? locale : article?.lang || locale
   const needsResubmit = translationError instanceof ReaderApiError && translationError.code === "TRANSLATION_JOB_NOT_FOUND"
   const translationLabel = translationJob?.status === "queued" ? text.translationQueued : translationJob?.status === "running" ? text.translationRunning : text.translationSubmitting
-  const loadingLabel = previewLoading ? text.previewLoading : translationJob?.completedChunks !== undefined && translationJob.totalChunks !== undefined
+  const loadingLabel = previewLoading ? text.previewLoading : translationJob?.completedChunks !== undefined && translationJob.totalChunks !== undefined && translationJob.totalChunks > 0
     ? `${translationLabel} ${text.translationProgress.replace("{completed}", String(translationJob.completedChunks)).replace("{total}", String(translationJob.totalChunks))}`
     : translationLabel
 

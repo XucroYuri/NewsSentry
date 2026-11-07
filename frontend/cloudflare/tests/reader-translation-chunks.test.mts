@@ -3,25 +3,26 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { marked } from "marked";
-import { markdownHash } from "../workers/lib/reader-http.ts";
+import { markdownHash, normalizeMarkdown } from "../workers/lib/reader-http.ts";
 import { validTranslation } from "../workers/lib/reader-translate.ts";
 import { splitTranslationMarkdown, TRANSLATION_MAX_CHUNKS } from "../workers/lib/reader-translation-chunks.ts";
 import {
   submitTranslationJob, getTranslationJob, handleTranslationQueueBatch, handleTranslationDlqBatch,
   processTranslationJob, sweepTranslationJobs, translationLifetime, TRANSLATION_EXECUTION_MS,
   TRANSLATION_LEASE_MS, TRANSLATION_MAX_LIFETIME_MS, TRANSLATION_REENQUEUE_MS,
+  TRANSLATION_MAX_ATTEMPTS, TRANSLATION_MAX_EXECUTIONS,
 } from "../workers/lib/reader-translate-jobs.ts";
 import { translationFixture } from "./reader-job-fixture.mts";
 
 const article = Array.from({ length: 4 }, (_, index) =>
   `# Part ${index + 1}\n\n${"A complete sentence about the library. ".repeat(75)}\n\n[Source ${index}](https://example.com/${index})\n\n`).join("").trim();
 
-async function submit(fixture: ReturnType<typeof translationFixture>, markdown = article) {
+async function submit(fixture: ReturnType<typeof translationFixture>, markdown = article, retry = false, owner = "owner") {
   return (await submitTranslationJob(new Request("https://preview.example/api/v1/reader/translate", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      markdown, contentHash: await markdownHash(markdown), sourceLang: "en", targetLang: "zh",
+      markdown, contentHash: await markdownHash(markdown), sourceLang: "en", targetLang: "zh", retry,
     }),
-  }), fixture.env, "owner")).json();
+  }), fixture.env, owner)).json();
 }
 async function status(fixture: ReturnType<typeof translationFixture>, id: string) {
   return (await getTranslationJob(id, fixture.env, "owner")).json();
@@ -268,15 +269,15 @@ test("linear deadline and cap converge durably; expired jobs do not call upstrea
   assert.equal((await status(fixture, job.jobId)).completedChunks, 0);
 });
 
-for (const boundary of ["execution", "lifetime"]) {
-  test(`R3① failure after ${boundary} expires is timed_out even when upstream reports 502/429`, async (context) => {
+for (const upstreamStatus of [502, 429]) {
+  test(`R3① failure after lifetime expires is timed_out even when upstream reports ${upstreamStatus}`, async (context) => {
     context.mock.timers.enable({ apis: ["Date"] });
     const fixture = translationFixture();
     context.after(() => fixture.sqlite.close());
     const job = await submit(fixture);
     context.mock.method(globalThis, "fetch", () => {
-      context.mock.timers.tick(boundary === "execution" ? TRANSLATION_EXECUTION_MS : translationLifetime(job.totalChunks));
-      return new Response("unavailable", { status: boundary === "execution" ? 502 : 429 });
+      context.mock.timers.tick(translationLifetime(job.totalChunks));
+      return new Response("unavailable", { status: upstreamStatus });
     });
     await deliver(fixture);
     const result = await status(fixture, job.jobId);
@@ -286,6 +287,156 @@ for (const boundary of ["execution", "lifetime"]) {
     assert.equal(fixture.queue.length, 0);
   });
 }
+
+test("120s chunk deadline requeues that chunk with a new generation, then succeeds without rerunning the prefix", async (context) => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  const fixture = translationFixture();
+  context.after(() => fixture.sqlite.close());
+  let calls = 0;
+  const started = Promise.withResolvers<void>();
+  const late = Promise.withResolvers<Response>();
+  context.mock.method(globalThis, "fetch", (url, init) => {
+    calls++;
+    if (calls === 2) { started.resolve(); return late.promise; }
+    return echo(url, init);
+  });
+  const job = await submit(fixture);
+  await deliver(fixture);
+  const prefix = fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE chunk_index=0").get();
+  const stale = fixture.queue[0];
+  const running = deliver(fixture);
+  await started.promise;
+  context.mock.timers.tick(TRANSLATION_EXECUTION_MS);
+  await running;
+  const queued = await status(fixture, job.jobId);
+  assert.equal(queued.status, "queued");
+  assert.equal(queued.completedChunks, 1);
+  assert.equal(fixture.queue[0].chunk_index, 1);
+  assert.ok(fixture.queue[0].generation > stale.generation);
+  assert.equal(fixture.delays.at(-1), 0);
+  while (fixture.queue.length) await deliver(fixture);
+  const committed = fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks ORDER BY chunk_index").all();
+  late.resolve(Response.json({ choices: [{ finish_reason: "stop", message: { content: "迟到" } }] }));
+  await Promise.resolve();
+  assert.equal((await status(fixture, job.jobId)).status, "succeeded");
+  assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks ORDER BY chunk_index").all(), committed);
+  assert.deepEqual(committed[0], prefix);
+  assert.equal(committed[1].execution_count, 2);
+  assert.equal(calls, job.totalChunks + 1);
+});
+
+test("two chunk timeouts exhaust executions as failed while lifetime remains", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"] });
+  const fixture = translationFixture();
+  context.after(() => fixture.sqlite.close());
+  let calls = 0;
+  context.mock.method(globalThis, "fetch", () => {
+    calls++;
+    context.mock.timers.tick(TRANSLATION_EXECUTION_MS);
+    return new Response("late failure", { status: 502 });
+  });
+  const job = await submit(fixture);
+  while (fixture.queue.length) await deliver(fixture);
+  const result = await status(fixture, job.jobId);
+  assert.equal(result.status, "failed");
+  assert.equal(result.code, "TRANSLATION_TIMED_OUT");
+  assert.equal(result.completedChunks, 0);
+  assert.equal(calls, TRANSLATION_MAX_EXECUTIONS);
+  await sweepTranslationJobs(fixture.env);
+  assert.equal((await status(fixture, job.jobId)).status, "failed");
+  assert.equal(fixture.queue.length, 0);
+});
+
+for (const terminal of ["failed", "timed_out"]) {
+  test(`explicit retry of ${terminal} resets the same owner job and resumes committed progress without upstream replay`, async (context) => {
+    context.mock.timers.enable({ apis: ["Date"] });
+    const fixture = translationFixture();
+    context.after(() => fixture.sqlite.close());
+    let calls = 0;
+    context.mock.method(globalThis, "fetch", (url, init) => {
+      calls++;
+      if (calls !== 2) return echo(url, init);
+      if (terminal === "timed_out") context.mock.timers.tick(translationLifetime(splitTranslationMarkdown(article).length));
+      return new Response("unavailable", { status: 502 });
+    });
+    const job = await submit(fixture);
+    await deliver(fixture);
+    const prefix = fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE chunk_index=0").get();
+    const stale = fixture.queue[0];
+    await deliver(fixture);
+    assert.equal((await status(fixture, job.jobId)).status, terminal);
+    const failedGeneration = fixture.sqlite.prepare("SELECT generation FROM reader_translation_jobs").get()!.generation;
+    const retries = await Promise.all(Array.from({ length: 8 }, () => submit(fixture, article, true)));
+    assert.ok(retries.every((retry) => retry.jobId === job.jobId && retry.attemptCount === 2 && retry.completedChunks === 1));
+    assert.equal(fixture.queue.length, 1);
+    assert.equal(fixture.queue[0].chunk_index, 1);
+    assert.ok(fixture.queue[0].generation > Number(failedGeneration));
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE chunk_index=0").get(), prefix);
+    assert.equal(fixture.sqlite.prepare("SELECT execution_count FROM reader_translation_chunks WHERE chunk_index=1").get()!.execution_count, 0);
+    await processTranslationJob(job.jobId, fixture.env, stale.generation, stale.chunk_index);
+    await handleTranslationDlqBatch({ messages: [{ body: stale, ack() {}, retry() { assert.fail(); } }] }, fixture.env);
+    assert.equal(calls, 2);
+    while (fixture.queue.length) await deliver(fixture);
+    assert.equal((await status(fixture, job.jobId)).status, "succeeded");
+    assert.equal(calls, job.totalChunks + 1);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE chunk_index=0").get(), prefix);
+  });
+}
+
+test("explicit retry never reuses another owner's completed chunks or job", async (context) => {
+  const fixture = translationFixture();
+  context.after(() => fixture.sqlite.close());
+  let calls = 0;
+  context.mock.method(globalThis, "fetch", (url, init) => {
+    calls++;
+    return calls === 2 ? new Response("unavailable", { status: 502 }) : echo(url, init);
+  });
+  const own = await submit(fixture);
+  await deliver(fixture);
+  await deliver(fixture);
+  const snapshot = fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE job_id=?").all(own.jobId);
+  const other = await submit(fixture, article, true, "other");
+  assert.notEqual(other.jobId, own.jobId);
+  assert.equal(other.completedChunks, 0);
+  assert.equal(other.attemptCount, 1);
+  await assert.rejects(getTranslationJob(own.jobId, fixture.env, "other"), { status: 404 });
+  while (fixture.queue.length) await deliver(fixture);
+  const result = await (await getTranslationJob(other.jobId, fixture.env, "other")).json();
+  assert.equal(result.status, "succeeded");
+  assert.equal(calls, other.totalChunks + 2);
+  assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM reader_translation_chunks WHERE job_id=?").all(own.jobId), snapshot);
+});
+
+test("explicit retry cap bounds total upstream calls across generations and preserves every completed prefix", async (context) => {
+  const fixture = translationFixture();
+  context.after(() => fixture.sqlite.close());
+  const counts = new Map<string, number>();
+  const last = splitTranslationMarkdown(normalizeMarkdown(article)).at(-1);
+  context.mock.method(globalThis, "fetch", (url, init) => {
+    const text = JSON.parse(String(init.body)).messages[1].content;
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+    return text === last ? Response.json(null) : echo(url, init);
+  });
+  const job = await submit(fixture);
+  for (let attempt = 1; attempt <= TRANSLATION_MAX_ATTEMPTS; attempt++) {
+    while (fixture.queue.length) await deliver(fixture);
+    const result = await status(fixture, job.jobId);
+    assert.equal(result.status, "failed");
+    assert.equal(result.attemptCount, attempt);
+    assert.equal(result.completedChunks, job.totalChunks - 1);
+    const retries = await Promise.all(Array.from({ length: 8 }, () => submit(fixture, article, true)));
+    assert.ok(retries.every((retry) => retry.jobId === job.jobId));
+    assert.ok(retries.every((retry) => retry.attemptCount === Math.min(attempt + 1, TRANSLATION_MAX_ATTEMPTS)));
+  }
+  const calls = [...counts.values()].reduce((total, count) => total + count, 0);
+  assert.equal(counts.get(last!), TRANSLATION_MAX_ATTEMPTS * TRANSLATION_MAX_EXECUTIONS);
+  for (const [text, count] of counts) if (text !== last) assert.equal(count, 1);
+  assert.equal(calls, job.totalChunks - 1 + TRANSLATION_MAX_ATTEMPTS * TRANSLATION_MAX_EXECUTIONS);
+  assert.ok(calls <= job.totalChunks * TRANSLATION_MAX_EXECUTIONS * TRANSLATION_MAX_ATTEMPTS);
+  assert.equal(fixture.queue.length, 0);
+  await sweepTranslationJobs(fixture.env);
+  assert.equal(fixture.queue.length, 0);
+});
 
 test("whole-result destination validation rejects cross-chunk reference collisions before success/cache", async (context) => {
   const fixture = translationFixture();
@@ -312,7 +463,7 @@ test("whole-result destination validation rejects cross-chunk reference collisio
   assert.equal(fixture.sqlite.prepare("SELECT result_json FROM reader_translation_chunks WHERE chunk_index=1").get()!.result_json, null);
 });
 
-test("R4 migration is additive, repeatable, schema-equivalent and preserves existing R2 job/result/receipt", () => {
+test("R6 chunk receipt is consistent; migration is additive, repeatable, schema-equivalent and preserves R2 rows", () => {
   const fixture = translationFixture();
   const legacy = new DatabaseSync(":memory:");
   try {
@@ -326,6 +477,12 @@ test("R4 migration is additive, repeatable, schema-equivalent and preserves exis
     const migration = readFileSync(new URL("../db/migrations/20261107_reader_translation_chunks.sql", import.meta.url), "utf8");
     fixture.sqlite.exec(migration);
     fixture.sqlite.exec(migration);
+    assert.equal(fixture.sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM runtime_migration_receipts WHERE migration_id='20261107_reader_translation_chunks_r6'",
+    ).get()!.count, 1);
+    assert.equal(fixture.sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM runtime_migration_receipts WHERE migration_id='20261107_reader_translation_chunks_r4'",
+    ).get()!.count, 0);
     legacy.exec(migration);
     legacy.exec(migration);
     assert.deepEqual(legacy.prepare("SELECT * FROM reader_translation_jobs").all(), oldJob);

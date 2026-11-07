@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS reader_translation_chunks (
 );
 
 INSERT OR IGNORE INTO runtime_migration_receipts (migration_id, details_json)
-VALUES ('20261107_reader_translation_chunks_r4', '{"scope":"reader-preview","plan":"markdown-blocks-v1"}');
+VALUES ('20261107_reader_translation_chunks_r6', '{"scope":"reader-preview","plan":"markdown-blocks-v1"}');

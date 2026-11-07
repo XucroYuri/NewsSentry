@@ -189,6 +189,43 @@ describe("Reader states", () => {
     expect(screen.queryByRole("status")).toBeNull()
   })
 
+  it("uses a plain status while totalChunks is zero", async () => {
+    let context: TranslationContext | undefined
+    let finish!: (value: ReaderTranslation) => void
+    const api = adapter()
+    api.translate = vi.fn((_input, _signal, progress) => {
+      context = progress
+      progress?.onProgress?.({ jobId: "legacy", status: "queued", attemptCount: 1, completedChunks: 0, totalChunks: 0 })
+      return new Promise<ReaderTranslation>((resolve) => { finish = resolve })
+    })
+    render(<ReaderView route={route()} adapter={api} />)
+    expect(await screen.findByRole("status", { name: messages.zh.translationQueued })).toBeVisible()
+    expect(screen.getByRole("status")).not.toHaveTextContent("0/0")
+    act(() => context?.onProgress?.({ jobId: "legacy", status: "running", attemptCount: 1, completedChunks: 0, totalChunks: 0 }))
+    expect(screen.getByRole("status", { name: messages.zh.translationRunning })).toBeVisible()
+    act(() => finish(translated))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+  })
+
+  it.each(["failed", "timed_out"] as const)("resumes %s retry progress at the already completed chunk count", async (status) => {
+    let finish!: (value: ReaderTranslation) => void
+    const api = adapter()
+    api.translate = vi.fn()
+      .mockRejectedValueOnce(new ReaderApiError(503, "MODEL_ERROR", "detail", status))
+      .mockImplementationOnce((_input, _signal, progress: TranslationContext) => {
+        progress.onProgress?.({ jobId: "same-job", status: "queued", attemptCount: 2, completedChunks: 2, totalChunks: 4 })
+        return new Promise<ReaderTranslation>((resolve) => { finish = resolve })
+      })
+    render(<ReaderView route={route()} adapter={api} />)
+    await screen.findByRole("alert")
+    fireEvent.click(screen.getByRole("button", { name: "重试" }))
+    const label = messages.zh.translationProgress.replace("{completed}", "2").replace("{total}", "4")
+    expect(await screen.findByRole("status")).toHaveTextContent(label)
+    expect(screen.getByRole("status")).not.toHaveTextContent(messages.zh.translationProgress.replace("{completed}", "0").replace("{total}", "4"))
+    act(() => finish(translated))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+  })
+
   it.each(readerLocales)("requires clicking the localized resubmit action after a restored 404 in %s", async (locale) => {
     const key = `news-sentry-reader-job:v1:${JSON.stringify(["demo", mockArticle.contentHash, locale, mockArticle.lang])}`
     sessionStorage.setItem(key, "other-account-or-missing-job")

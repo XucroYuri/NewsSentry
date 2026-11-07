@@ -136,7 +136,9 @@ Preview 独立 cron `*/2 * * * *`（UTC）执行恢复与终态收敛，
 不覆盖已有业务数据。仓库使用逐文件 `d1 execute --file`，
 没有启用 Wrangler 默认 migration ledger；部署方只执行本次增量，
 不运行全量 schema/seed 或批量 apply 未审 pending migrations。
-R4 保持 R2 迁移原文不变；新增段表与回执 `20261107_reader_translation_chunks_r4`。
+R6 保持 R2 迁移原文不变；段表回执统一为 `20261107_reader_translation_chunks_r6`，
+与当前缓存代际一致。段表尚未部署，仅修改未应用迁移的回执标签；
+若读回已有 `_r4` 回执，先停下复核实际版本，不把改名当作已完成升级。
 如发现远端旧任务表已存在但缺 R2 列，
 必须停止并另审 additive ALTER，CREATE IF NOT EXISTS 不会升级旧表。
 本轮不验证远端 ledger、不部署、不运行远端 wrangler。
@@ -149,7 +151,7 @@ R4 保持 R2 迁移原文不变；新增段表与回执 `20261107_reader_transla
 lease_until、next_attempt_at、last_enqueued_at。KV 使用
 `reader-tr:{scopeHash}:{optionsHash}`：scope 哈希环境+owner，options 哈希
 contentHash、sourceLang、targetLang 和 `READER_TRANSLATION_CACHE_VERSION`
-（默认和 preview 为 `reader-r5-structure-v1`，提示词/翻译选项变化必须 bump）。
+（默认和 preview 为 `reader-r6-structure-v1`，提示词/翻译选项变化必须 bump）。
 不再读取旧 `tr:{hash}:{lang}`；命中仍跑完整 validTranslation，
 仅 fenced D1 成功且完整的结果写 KV，TTL 7 天；失败/截断不写。
 D1 保存权威结果快照，
@@ -170,7 +172,8 @@ generation 与当前段 execution_count 加一，每段最多两次领取。
 每次 Queue 投递只执行一段，一个最多 120 秒的 Magpie 调用；异步分段路径
 仅使用已配置免费组，不在同次执行调用闲置组或 Workers AI。底层翻译器原有
 fallback 接口与 MAGPIE 配置默认值保留，测试单独覆盖。
-正常 n 段成功需 n 次调用；崩溃/过期租约恢复可能有重复上游请求，最多 2n 次。
+正常 n 段成功需 n 次调用；每轮最多 2n 次，显式重试最多三轮，合计最多 6n 次。
+已完成段跨轮保留，其实际调用不会因重试再增加；崩溃/过期租约可能产生有界重复请求。
 D1 操作使用 first-primary session 和 batch 事务，不能宣称跨故障 exactly-once。
 `queued → running → queued（下一段） → … → succeeded|failed|timed_out` 只反映真实状态；
 finish_reason 必须为 stop，译文非空、限长并通过逐段和全文结构等价校验才算成功：
@@ -185,14 +188,24 @@ finish_reason=stop 和结构等价都不能证明逐句语义无漏译。
 首次 429 不换组，持久排队并以当前新 generation 加 delaySeconds 延迟重投，
 Retry-After 支持整数/HTTP 日期，默认 60 秒，下限 1 秒、平台上限 86400 秒；
 超过任务剩余寿命不再调用模型。该段第二次 429 failed，计入该段两次领取上限。
-只有 failed/timed_out 后的 `retry:true` 创建新 jobId，attempt_count 加一。
-普通重复提交返回已有任务；对 queued/running/succeeded 的 retry 不新建任务。
+只有 failed/timed_out 后的 `retry:true` 可以按 `owner + dedupe_key + generation`
+原子复位原 job 为 queued，generation 与 attempt_count 加一，不重切计划、不新建 jobId。
+同事务仅清零 `result_json IS NULL` 段的 execution_count、完成时间并更新代际；
+非空成功段逐字保留，发送最小未完成 index，前端从已有 x/y 继续。
+复位错误、租约、当前段次数、调度时间和开始/结束时间；created_at 更新为本轮起点，
+重新获得同一线性 lifetime，避免已 timed_out 的任务立即再次过期。
+attempt_count 包含首轮，上限 `TRANSLATION_MAX_ATTEMPTS=3`；耗尽后返回原终态，
+重复点击不写入、不入队、不调用模型。普通重复提交及 queued/running/succeeded
+上的 retry 均返回已有任务；跨 owner 不共享 job、段、结果或重试计数。
+选择原 job 复位是为了复用既有计划、主键和完成快照，避免复制段及新增迁移列。
 
 段表 `reader_translation_chunks` 以 `(job_id, chunk_index)` 为主键，保存不可变
 原文段、plan_version、generation、段 execution_count、成功快照与完成时间。
 分段目标常量 `TRANSLATION_CHUNK_CHARS=4000`、最大 32 段；
 按 Markdown 标题/段落/列表/表格/围栏块切，超长块按安全句/行边界继续切。
 链接、图片、行内代码及完整围栏不拆；跨块引用式链接与定义保持在同段。
+边界选择目前每段扫描已排序 points，复杂度为 O(段数 × 边界数)，
+在 24000 字符、32 段上限内接受；本轮只记录此热点，不改变切分算法（m3）。
 无法安全拆分的单块可超过目标段长，仍受单次 120 秒限制，不保证成功。
 提交事务同时创建任务与段计划；R2 遗留 queued/running 任务首次消费时以同一
 算法原子补计划，旧终态不重跑。新迁移不改写任何既有任务。
@@ -202,17 +215,26 @@ Retry-After 支持整数/HTTP 日期，默认 60 秒，下限 1 秒、平台上�
 部分结果不返回 translated、不写完整缓存。普通 GET 只计数已提交段，
 返回 `completedChunks/totalChunks`，缓存命中新建终态没有段执行，计数为 0/0。
 
-每次 Magpie 与执行窗口均为 120 秒，lease 为 150 秒。
-任务自创建 deadline 为 `min(7200000, 240000 + n × 360000)` 毫秒：
+### R6：段执行窗口与任务 lifetime
+
+每次 Magpie 与执行窗口均为 120 秒，lease 为 150 秒。窗口从领取时刻计时，
+包含 D1 领取/读取开销；Magpie 从 fetch 开始独立计时，实际可用时间可能略短（m4）。
+本轮任务自 created_at 起的 lifetime 为 `min(7200000, 240000 + n × 360000)` 毫秒：
 1 段 10 分钟，5 段 34 分钟，上限 2 小时；排队、429 延迟和恢复均计入寿命。
-执行完成与失败两条路径均复检执行窗口和总寿命，耗尽一律 timed_out。
+执行完成与失败两条路径均复检窗口与 lifetime。段级 120 秒超时若该段
+execution_count < 2 且 lifetime 未到，与 429/INVALID 共用 queued 重排路径，
+delaySeconds=0；下次领取增加 generation，保留完成前缀。
+同段两次执行均超时则 failed（code 可为 TRANSLATION_TIMED_OUT），不把段失败
+冒充任务 lifetime 耗尽。只有 lifetime 耗尽才落 timed_out；即使上游此时返回
+502/429，也必须 timed_out（保留 R3①）。
 Queue send 失败或插入后崩溃保留 queued；
 sweeper 对超过 60 秒未领取/重发的 queued 重新发送同 jobId，
 对过期租约重发当前 generation，下一次领取加一。
 基础设施异常按消息 retry(delaySeconds=60)，最多 3 次后进入专用 DLQ；
 DLQ 把对应 queued/租约已过期的 running 落 failed，不能终结新代际/活跃租约。
-过期投递、两次执行耗尽且租约过期、总寿命耗尽由 consumer/sweeper 落
-timed_out。消息 retention 到期会删除，不保证进 DLQ，独立 sweeper
+consumer/sweeper 优先把 lifetime 耗尽落 timed_out；两次领取耗尽且租约过期
+但 lifetime 未到时落 failed/TRANSLATION_EXECUTIONS_EXHAUSTED。
+消息 retention 到期会删除，不保证进 DLQ，独立 sweeper
 负责没有消息时的持久收敛；DLQ 自身失败也由总寿命兜底。
 cron/D1 不可用时须等恢复后的成功 sweep，不能承诺绝对墙钟 SLA。
 不宣称跨故障 exactly-once。queue() 只按精确四个队列名分发，
@@ -228,6 +250,7 @@ GET 从不调用 Magpie、Workers AI 或 Queue，零写入副作用，
 前端以 sessionStorage 保存对应正文/语言的 jobId，刷新先查询同一任务。
 提交后按 1.5 秒到 5 秒退避轮询，没有客户端总超时，卸载仍取消请求和等待；
 显示真实排队/运行状态及已完成 x/y 段，失败/超时保留原文并提供显式重试。
+只有 totalChunks > 0 才显示 x/y；旧任务或缓存的 0/0 使用普通状态文案（m6）。
 恢复或轮询 GET 404 时清理失效 jobId，保留“可重新提交”标记；
 账号切换/不存在/已清理均停止查询，刷新不自动 POST，点击“重新提交翻译”才提交。
 接口与前端需一起发布。Preview 新增 `READER_ASYNC_SUBMIT="1"`；
@@ -243,12 +266,12 @@ GET 从不调用 Magpie、Workers AI 或 Queue，零写入副作用，
    `wrangler queues pause-delivery news-sentry-reader-translate-dlq-preview`。
    不动生产 news-sentry-jobs/DLQ；pause 不取消在途、不阻止 producer、
    不冻结 retention，不 purge 或移除 consumer。
-3. 保留 R4 兼容 Worker 和 cron；cron 可能与主队列、DLQ、另一 tick 并发，
+3. 保留 R6 兼容 Worker 和 cron；cron 可能与主队列、DLQ、另一 tick 并发，
    并发 1 不是跨队列锁。等待在途完成、150 秒 lease 和逐任务线性 deadline
    （5 段 34 分钟，上限 2 小时）收敛，
    sweeper 将旧任务持久收敛；确认 D1 queued/running 为零，
    或逐项保留处理记录。暂停期间重发的消息留在队列；旧结果受 fence 限制。
-4. 保留 D1 任务表/段表/结果/回执、KV、两队列消息与恢复书签；不 drop、
+4. 导出并保留 D1 任务表/段表/结果/回执、KV、两队列消息与恢复书签；
    不清空、不删队列。代码回滚不恢复 D1/KV 数据。
 5. 收敛后仅移除 preview Reader cron：显式 desired config 去掉该表达式；
    若它是唯一 cron，目标 preview Worker 设置 `crons=[]`，否则保留其他表达式。
@@ -258,7 +281,19 @@ GET 从不调用 Magpie、Workers AI 或 Queue，零写入副作用，
    Worker/Pages 版本。部署前重新捕获成对版本，
    不机械使用预检旧 `4028f09c`；consumer 注册单独核对。
    旧 Worker 无 consumer 时队列必须继续 paused，禁止继续投递。
-6. 恢复时先装兼容 consumer/cron 并核对 preview 绑定与 schema，
+6. 如需撤销段表迁移，先切换到不再读写 chunks 的配套版本，
+   确认无 R6 在途执行或迟到 cron，且主队列与 DLQ 仍暂停，备份可恢复后，
+   才由部署方显式执行以下 down SQL。保留 jobs 表及 R2 receipt。
+   FK 不使用 ON DELETE：正常流程从不删除 job；未来清理必须先清段再清 job，
+   不依赖环境是否启用 FK。
+
+   ```sql
+   DROP TABLE IF EXISTS reader_translation_chunks;
+   DELETE FROM runtime_migration_receipts
+   WHERE migration_id = '20261107_reader_translation_chunks_r6';
+   ```
+
+7. 恢复时先重建并恢复段表备份及 receipt，再装兼容 consumer/cron 并核对 preview 绑定与 schema，
    保持提交关闭，恢复两队列投递并验证终态 ACK，最后再开启提交。
 
 ## 提取与边界
