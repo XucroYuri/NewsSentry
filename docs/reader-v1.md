@@ -1,8 +1,9 @@
 # Reader v1：原文与免费翻译旁路
 
 Reader 是独立 Worker API。`READER_V1` 只有精确等于 `"1"` 才启用；生产、
-preview、dev 的仓库配置均默认关闭。既有公开新闻接口、采集和研判链路不变，
-不新增 D1 表、不持久化原文、不自动发布。本次交付仅提交代码与 draft PR。
+dev 的仓库配置默认关闭，preview 已启用。既有公开新闻接口、采集和研判链路不变，
+翻译任务使用独立 D1 表暂存限长正文并由 preview 专用队列执行，不自动发布。
+本次交付仅提交代码与 draft PR，不创建远端资源、不部署。
 
 ## 生产启用硬门禁与 M1 威胁模型
 
@@ -33,7 +34,7 @@ compatible、NAT64 和 6to4 等特殊/转换地址也不会放行。此策略有
 
 DoH 只发送域名和记录类型，不携带正文、Cookie 或 Authorization；禁止跟随解析器
 重定向，不在应用或 HTTP 层缓存校验结果（递归解析器自身仍遵守 DNS TTL）。
-每组 A/AAAA 共用 3 秒期限，并受原请求 10 秒/翻译 15 秒总期限约束；每个响应上限
+每组 A/AAAA 共用 3 秒期限，并受原文请求 10 秒/每次 Magpie 尝试 120 秒期限约束；每个响应上限
 64 KiB、64 条记录、8 跳 CNAME。遇到非公网地址返回 `400 UNSAFE_URL`；
 超时、NXDOMAIN/SERVFAIL、无地址、截断、格式/HTTP/网络异常统一
 `502 DNS_RESOLUTION_FAILED`，不请求目标。DNS 校验失败直接结束翻译请求，
@@ -95,16 +96,17 @@ mock 仅允许 loopback 主机，按需加载虚构样稿，不调用外部模�
 |---|---|---|
 | `POST /api/v1/reader/preview` | `{articleId?, url?}`，至少一个，优先 articleId | `{markdown, images, sourceUrl, lang, title, byline, publishedTime, contentHash, attribution}` |
 | `GET /api/v1/reader/image?u=&s=` | 原图 URL 和 HMAC-SHA256 签名 | 支持的位图响应 |
-| `POST /api/v1/reader/translate` | `{markdown, targetLang, contentHash, sourceLang?}`，兼容 text 别名 | `{translated, lang, cached, provider}` |
+| `POST /api/v1/reader/translate` | `{markdown, targetLang, contentHash, sourceLang?, retry?}`，兼容 text 别名 | 202 `{jobId, status}`；缓存命中或已有终态为 200 |
+| `GET /api/v1/reader/translate/{jobId}` | Access 用户会话 | `{jobId, status, attemptCount, completedChunks, totalChunks, createdAt, updatedAt, startedAt, finishedAt}`；成功时附译文，失败时附 code/message/errorStatus |
 
-Preview/translate 要求 `Origin` 与请求 URL 完全同源，并且有有效的
+Preview/translate POST 要求 `Origin` 与请求 URL 完全同源，并且有有效的
 `CF_Authorization` 用户 Cookie（或 Access edge 提供的已签用户 assertion）。
 复用现有 `CF_ACCESS_AUD` / `CF_ACCESS_TEAM_DOMAIN` 验签配置；兼容已有
 `NEWS_SENTRY_ACCESS_*` 别名。服务 principal 和任意自造 Cookie 均不能授权。
 
 **现状裁定：** 既有 public GET API 是匿名接口，没有可复用的 public session。
 本旁路复用已有 Access 用户会话；测试使用临时 RSA 密钥和假的 JWKS，
-不关闭验签。接入时应只保护两个 POST 路径，图片路径保持由 HMAC 授权，
+不关闭验签。部署时保护两个 POST 路径和 translate 任务查询路径，图片路径保持由 HMAC 授权，
 避免 Access edge 在浏览器无 Cookie 时提前拦截图片。部署仍需单独安排。
 
 图片端点只信签名，Cookie 不授予访问权；签名错误时不请求上游。只转发
@@ -115,6 +117,184 @@ Cookie/Authorization。每次重定向重新检查 URL 和解析后的地址；�
 
 错误统一为 `{error, code, message}`，使用 400/403/404/422/429/502/503。
 无法提取正文返回 `422 EXTRACTION_FAILED`，message 保留原文链接供用户打开。
+
+### 异步翻译任务（2026-11-07）
+
+POST 仅校验、读取合法缓存、创建持久化任务并发送 Queue 消息，不等待模型。
+执行使用已有 Queues 产品的隔离队列 `news-sentry-reader-translate-preview`，
+preview 新增 producer `READER_TRANSLATE_QUEUE`；consumer batch size 1、
+batch timeout 1 秒、并发 1、`max_retries=3`、`retry_delay=60`，
+专用 DLQ `news-sentry-reader-translate-dlq-preview`。
+DLQ consumer 同样 size 1、timeout 1、并发 1、retries 3、retry delay 60。
+Preview 独立 cron `*/2 * * * *`（UTC）执行恢复与终态收敛，
+不运行原有采集 scheduler；不新增 DO，生产配置不变。
+部署前需另行创建两个专用队列，并向 `ns-db-preview` 应用
+`frontend/cloudflare/db/migrations/20261107_reader_translation_jobs.sql`，随后应用
+`frontend/cloudflare/db/migrations/20261107_reader_translation_chunks.sql`；
+该迁移与 `schema.sql` 的任务表定义一致，增加表、列定义、索引及自定义
+`runtime_migration_receipts` 回执 `20261107_reader_translation_jobs_r2`，
+不覆盖已有业务数据。仓库使用逐文件 `d1 execute --file`，
+没有启用 Wrangler 默认 migration ledger；部署方只执行本次增量，
+不运行全量 schema/seed 或批量 apply 未审 pending migrations。
+R6 保持 R2 迁移原文不变；段表回执统一为 `20261107_reader_translation_chunks_r6`，
+与当前缓存代际一致。段表尚未部署，仅修改未应用迁移的回执标签；
+若读回已有 `_r4` 回执，先停下复核实际版本，不把改名当作已完成升级。
+如发现远端旧任务表已存在但缺 R2 列，
+必须停止并另审 additive ALTER，CREATE IF NOT EXISTS 不会升级旧表。
+本轮不验证远端 ledger、不部署、不运行远端 wrangler。
+用户已授权 preview Queues/Workers/D1/KV 按量费用，不含付费模型、
+生产扩容或其他计费产品。
+
+任务表 `reader_translation_jobs` 保存 Access `principal.id`、正文 hash、
+源/目标语言、最多 24000 字符正文、状态、错误、attempt_count、毫秒时间戳
+及最多 100000 字符的成功译文，另存 generation、execution_count、
+lease_until、next_attempt_at、last_enqueued_at。KV 使用
+`reader-tr:{scopeHash}:{optionsHash}`：scope 哈希环境+owner，options 哈希
+contentHash、sourceLang、targetLang 和 `READER_TRANSLATION_CACHE_VERSION`
+（默认和 preview 为 `reader-r6-structure-v1`，提示词/翻译选项变化必须 bump）。
+不再读取旧 `tr:{hash}:{lang}`；命中仍跑完整 validTranslation，
+仅 fenced D1 成功且完整的结果写 KV，TTL 7 天；失败/截断不写。
+D1 保存权威结果快照，
+不因 KV 传播延迟或 7 天后过期而丢失已完成任务。不同用户的 jobId 和错误隔离；
+缓存默认不跨用户、环境、源语言或版本共享。
+KV 最终一致性下 miss 只会返回 D1 去重后的原任务；GET 不读 KV，
+不依赖其传播时延，成功状态与成功结果一同持久化。
+
+同用户、环境、contentHash、targetLang、sourceLang、缓存版本使用同一个 dedupe key；
+D1 原子 INSERT SELECT、`UNIQUE(dedupe_key, attempt_count)` 及非终态局部
+UNIQUE 索引处理并发。消息为 `{jobId,generation,chunk_index}`，不含正文或 owner；
+旧消息缺省 chunk_index=0，只能处理第 0 段。领取要求匹配当前未完成段、
+相同代际且 queued 或 running 租约过期，原子设置 running、150 秒 lease，
+generation 与当前段 execution_count 加一，每段最多两次领取。
+终态/不匹配 generation 或 chunk_index 的重复消息 ACK，不调模型；
+结果和失败写回都 fence `id + generation + status='running'`，
+成功还检查租约，旧代际不得写 D1 结果或 KV。
+每次 Queue 投递只执行一段，一个最多 120 秒的 Magpie 调用；异步分段路径
+仅使用已配置免费组，不在同次执行调用闲置组或 Workers AI。底层翻译器原有
+fallback 接口与 MAGPIE 配置默认值保留，测试单独覆盖。
+正常 n 段成功需 n 次调用；每轮最多 2n 次，显式重试最多三轮，合计最多 6n 次。
+已完成段跨轮保留，其实际调用不会因重试再增加；崩溃/过期租约可能产生有界重复请求。
+D1 操作使用 first-primary session 和 batch 事务，不能宣称跨故障 exactly-once。
+`queued → running → queued（下一段） → … → succeeded|failed|timed_out` 只反映真实状态；
+finish_reason 必须为 stop，译文非空、限长并通过逐段和全文结构等价校验才算成功：
+代码围栏数量与每块原始围栏（包括语言、代码空白）逐字一致，链接和图片目的地
+分别按多重集比较，标题数量和层级顺序一致，表格数量和各表行数（含表头）一致。
+围栏后的分隔换行不属于围栏内容。标题、表格单元格、链接标签可以翻译。
+每段写入 D1 前校验，最后一段提交前再校验拼接全文；失败均不持久化该次段结果、
+完整结果或 KV，TRANSLATION_INVALID 沿用该段最多两次领取预算，立即重排当前段。
+第二次仍无效则 failed，错误附第 x/y 段与结构差异摘要；已成功的前缀不重跑。
+非法 JSON、空译文和非 stop 也受同一无效结果重试上限约束；上游 502 明确 failed。
+finish_reason=stop 和结构等价都不能证明逐句语义无漏译。
+首次 429 不换组，持久排队并以当前新 generation 加 delaySeconds 延迟重投，
+Retry-After 支持整数/HTTP 日期，默认 60 秒，下限 1 秒、平台上限 86400 秒；
+超过任务剩余寿命不再调用模型。该段第二次 429 failed，计入该段两次领取上限。
+只有 failed/timed_out 后的 `retry:true` 可以按 `owner + dedupe_key + generation`
+原子复位原 job 为 queued，generation 与 attempt_count 加一，不重切计划、不新建 jobId。
+同事务仅清零 `result_json IS NULL` 段的 execution_count、完成时间并更新代际；
+非空成功段逐字保留，发送最小未完成 index，前端从已有 x/y 继续。
+复位错误、租约、当前段次数、调度时间和开始/结束时间；created_at 更新为本轮起点，
+重新获得同一线性 lifetime，避免已 timed_out 的任务立即再次过期。
+attempt_count 包含首轮，上限 `TRANSLATION_MAX_ATTEMPTS=3`；耗尽后返回原终态，
+重复点击不写入、不入队、不调用模型。普通重复提交及 queued/running/succeeded
+上的 retry 均返回已有任务；跨 owner 不共享 job、段、结果或重试计数。
+选择原 job 复位是为了复用既有计划、主键和完成快照，避免复制段及新增迁移列。
+
+段表 `reader_translation_chunks` 以 `(job_id, chunk_index)` 为主键，保存不可变
+原文段、plan_version、generation、段 execution_count、成功快照与完成时间。
+分段目标常量 `TRANSLATION_CHUNK_CHARS=4000`、最大 32 段；
+按 Markdown 标题/段落/列表/表格/围栏块切，超长块按安全句/行边界继续切。
+链接、图片、行内代码及完整围栏不拆；跨块引用式链接与定义保持在同段。
+边界选择目前每段扫描已排序 points，复杂度为 O(段数 × 边界数)，
+在 24000 字符、32 段上限内接受；本轮只记录此热点，不改变切分算法（m3）。
+无法安全拆分的单块可超过目标段长，仍受单次 120 秒限制，不保证成功。
+提交事务同时创建任务与段计划；R2 遗留 queued/running 任务首次消费时以同一
+算法原子补计划，旧终态不重跑。新迁移不改写任何既有任务。
+每段结果与下一状态在同一 batch 事务中 fenced 写回；恢复只选择最小未完成段，
+成功后发送下一段，同 jobId、当前 generation、新 chunk_index。
+最后一段先按序拼接，再对全文执行 validTranslation，事务提交完整终态后才写 KV；
+部分结果不返回 translated、不写完整缓存。普通 GET 只计数已提交段，
+返回 `completedChunks/totalChunks`，缓存命中新建终态没有段执行，计数为 0/0。
+
+### R6：段执行窗口与任务 lifetime
+
+每次 Magpie 与执行窗口均为 120 秒，lease 为 150 秒。窗口从领取时刻计时，
+包含 D1 领取/读取开销；Magpie 从 fetch 开始独立计时，实际可用时间可能略短（m4）。
+本轮任务自 created_at 起的 lifetime 为 `min(7200000, 240000 + n × 360000)` 毫秒：
+1 段 10 分钟，5 段 34 分钟，上限 2 小时；排队、429 延迟和恢复均计入寿命。
+执行完成与失败两条路径均复检窗口与 lifetime。段级 120 秒超时若该段
+execution_count < 2 且 lifetime 未到，与 429/INVALID 共用 queued 重排路径，
+delaySeconds=0；下次领取增加 generation，保留完成前缀。
+同段两次执行均超时则 failed（code 可为 TRANSLATION_TIMED_OUT），不把段失败
+冒充任务 lifetime 耗尽。只有 lifetime 耗尽才落 timed_out；即使上游此时返回
+502/429，也必须 timed_out（保留 R3①）。
+Queue send 失败或插入后崩溃保留 queued；
+sweeper 对超过 60 秒未领取/重发的 queued 重新发送同 jobId，
+对过期租约重发当前 generation，下一次领取加一。
+基础设施异常按消息 retry(delaySeconds=60)，最多 3 次后进入专用 DLQ；
+DLQ 把对应 queued/租约已过期的 running 落 failed，不能终结新代际/活跃租约。
+consumer/sweeper 优先把 lifetime 耗尽落 timed_out；两次领取耗尽且租约过期
+但 lifetime 未到时落 failed/TRANSLATION_EXECUTIONS_EXHAUSTED。
+消息 retention 到期会删除，不保证进 DLQ，独立 sweeper
+负责没有消息时的持久收敛；DLQ 自身失败也由总寿命兜底。
+cron/D1 不可用时须等恢复后的成功 sweep，不能承诺绝对墙钟 SLA。
+不宣称跨故障 exactly-once。queue() 只按精确四个队列名分发，
+Reader 队列只允许 preview；未知队列告警并 ACK，不进入业务处理。
+
+GET 按 `id AND owner` 查询，其他用户或未知 jobId 均为 404，无任务内容泄漏。
+浏览器同源 GET 允许缺省 Origin；存在不匹配的 Origin 或 cross-site 标记时拒绝。
+GET 从不调用 Magpie、Workers AI 或 Queue，零写入副作用，
+包括超期 job 也只查询 D1 真实状态，持久收敛不依靠用户轮询。
+任务失败属于 HTTP 200 的终态 DTO，code/message/errorStatus 描述执行错误；
+鉴权、输入、资源不可用等 API 错误仍使用统一 HTTP 错误响应。
+
+前端以 sessionStorage 保存对应正文/语言的 jobId，刷新先查询同一任务。
+提交后按 1.5 秒到 5 秒退避轮询，没有客户端总超时，卸载仍取消请求和等待；
+显示真实排队/运行状态及已完成 x/y 段，失败/超时保留原文并提供显式重试。
+只有 totalChunks > 0 才显示 x/y；旧任务或缓存的 0/0 使用普通状态文案（m6）。
+恢复或轮询 GET 404 时清理失效 jobId，保留“可重新提交”标记；
+账号切换/不存在/已清理均停止查询，刷新不自动 POST，点击“重新提交翻译”才提交。
+接口与前端需一起发布。Preview 新增 `READER_ASYNC_SUBMIT="1"`；
+设为 `"0"` 时新提交（含 retry/缓存命中）在输入、KV、D1、Queue 处理前
+返回 503/TRANSLATION_SUBMIT_DISABLED；GET、consumer、cron 继续处理旧任务。
+
+### 回滚 runbook（Cloudflare-Bot 执行，本轮不执行）
+
+1. 在兼容 Worker 先设 `READER_ASYNC_SUBMIT=0`，读回并验证 POST 已停；
+   保持 READER_V1=1 以便 GET/consumer/sweeper 完成旧任务。
+2. 暂停两个专用队列并读回 paused 状态：
+   `wrangler queues pause-delivery news-sentry-reader-translate-preview`、
+   `wrangler queues pause-delivery news-sentry-reader-translate-dlq-preview`。
+   不动生产 news-sentry-jobs/DLQ；pause 不取消在途、不阻止 producer、
+   不冻结 retention，不 purge 或移除 consumer。
+3. 保留 R6 兼容 Worker 和 cron；cron 可能与主队列、DLQ、另一 tick 并发，
+   并发 1 不是跨队列锁。等待在途完成、150 秒 lease 和逐任务线性 deadline
+   （5 段 34 分钟，上限 2 小时）收敛，
+   sweeper 将旧任务持久收敛；确认 D1 queued/running 为零，
+   或逐项保留处理记录。暂停期间重发的消息留在队列；旧结果受 fence 限制。
+4. 导出并保留 D1 任务表/段表/结果/回执、KV、两队列消息与恢复书签；
+   不清空、不删队列。代码回滚不恢复 D1/KV 数据。
+5. 收敛后仅移除 preview Reader cron：显式 desired config 去掉该表达式；
+   若它是唯一 cron，目标 preview Worker 设置 `crons=[]`，否则保留其他表达式。
+   省略 crons 不表示移除；传播可达约 15 分钟，不能当作即时取消。
+   两队列保持暂停，继续保留兼容 scheduled handler，读回注册并核对迟到 tick。
+   确认两队列暂停、在途/lease/持久状态和迟到 cron 均已处理后，才回配套兼容
+   Worker/Pages 版本。部署前重新捕获成对版本，
+   不机械使用预检旧 `4028f09c`；consumer 注册单独核对。
+   旧 Worker 无 consumer 时队列必须继续 paused，禁止继续投递。
+6. 如需撤销段表迁移，先切换到不再读写 chunks 的配套版本，
+   确认无 R6 在途执行或迟到 cron，且主队列与 DLQ 仍暂停，备份可恢复后，
+   才由部署方显式执行以下 down SQL。保留 jobs 表及 R2 receipt。
+   FK 不使用 ON DELETE：正常流程从不删除 job；未来清理必须先清段再清 job，
+   不依赖环境是否启用 FK。
+
+   ```sql
+   DROP TABLE IF EXISTS reader_translation_chunks;
+   DELETE FROM runtime_migration_receipts
+   WHERE migration_id = '20261107_reader_translation_chunks_r6';
+   ```
+
+7. 恢复时先重建并恢复段表备份及 receipt，再装兼容 consumer/cron 并核对 preview 绑定与 schema，
+   保持提交关闭，恢复两队列投递并验证终态 ACK，最后再开启提交。
 
 ## 提取与边界
 
@@ -204,13 +384,16 @@ npx wrangler secret put MAGPIE_API_KEY --name news-sentry-api-preview
 Magpie 调用使用兼容的 `POST /v1/chat/completions`：
 `model=显式免费组`、`stream=false`，附带
 `metadata={cost_policy:"free-only",allow_paid_fallback:false}` 和
-`X-News-Sentry-Cost-Policy: free-only`，每组请求期限 15 秒。
+`X-News-Sentry-Cost-Policy: free-only`，每次请求保持 120 秒 stuck guard，
+不再把该时限当作前端等待完成的保证。
 这些标记不是 Magpie 的计费强制机制：服务端两个组必须只含已确认的免费或
 闲置配额路由，禁止再落入任何付费组；未完成审核时保持 `MAGPIE_FREE_ONLY=0`。
 组名只接受 `group/...`，不使用默认模型、通用 provider chain 或 REST 付费凭据。
 
-缓存 key 固定 `tr:{contentHash}:{targetLang}`，targetLang 规范为 BCP 47 标签，
-TTL 为 7 天。KV 命中不请求 Magpie，免费/闲置组全失败后返回结构化错误。
+缓存 key 为上文按环境/owner/输入/语言/版本隔离的
+`reader-tr:{scopeHash}:{optionsHash}`，targetLang 规范为 BCP 47 标签，
+TTL 为 7 天。KV 命中不请求 Magpie；异步 consumer 单段失败记录结构化错误，
+不在一次投递内换组。
 空译文、未完整输出或变更图片/链接目标均不写缓存。损坏的 JSON 按未命中处理；
 KV 不可读时先返回 503，避免请求反复直达上游。
 

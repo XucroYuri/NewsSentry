@@ -3,12 +3,53 @@ import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { handleReader } from "../workers/api/reader.ts";
+import { handleReader as handleReaderRoute, type ReaderEnv } from "../workers/api/reader.ts";
+import { handleTranslationQueueBatch } from "../workers/lib/reader-translate-jobs.ts";
+import { translationCacheKey, parseTranslationInput, translateReaderInput } from "../workers/lib/reader-translate.ts";
+import { translationFixture } from "./reader-job-fixture.mts";
 import { extractArticle } from "../workers/lib/reader-extract.ts";
-import { fetchReaderResource } from "../workers/lib/reader-http.ts";
+import { fetchReaderResource, readerFailure } from "../workers/lib/reader-http.ts";
 import { imageProxyUrl } from "../workers/lib/reader-image.ts";
 
 const origin = "https://news-sentry.com";
+
+async function handleTranslationProvider(request: Request, configuration: ReaderEnv) {
+  try {
+    return Response.json(await translateReaderInput(await parseTranslationInput(request), configuration));
+  } catch (error) {
+    return readerFailure(error);
+  }
+}
+
+async function handleReader(request: Request, configuration: ReaderEnv) {
+  if (new URL(request.url).pathname !== "/api/v1/reader/translate" || request.method !== "POST") {
+    return handleReaderRoute(request, configuration);
+  }
+  const fixture = translationFixture({
+    READER_TRANSLATIONS: undefined, MAGPIE_BASE_URL: undefined, MAGPIE_FREE_ONLY: undefined,
+    MAGPIE_FREE_GROUP: undefined, NEWS_SENTRY_ENVIRONMENT: undefined, ...configuration,
+  });
+  try {
+    const submitted = await handleReaderRoute(request, fixture.env as ReaderEnv);
+    if (!submitted.ok) return submitted;
+    const payload = await submitted.json();
+    while (fixture.queue.length) {
+      const body = fixture.queue.shift()!;
+      fixture.sqlite.prepare("UPDATE reader_translation_jobs SET next_attempt_at=0 WHERE id=?").run(body.jobId);
+      await handleTranslationQueueBatch({ messages: [{ body, ack() {}, retry() {} }] }, fixture.env);
+    }
+    const result = await handleReaderRoute(new Request(`${request.url}/${payload.jobId}`, {
+      headers: request.headers,
+    }), fixture.env as ReaderEnv);
+    const job = await result.json();
+    if (job.status === "succeeded") return Response.json({
+      translated: job.translated, lang: job.lang, cached: job.cached, provider: job.provider,
+    });
+    return Response.json({ error: job.code, code: job.code, message: job.message }, { status: job.errorStatus });
+  } finally {
+    fixture.sqlite.close();
+  }
+}
 const source = "https://publisher.example/news/story";
 const secret = "reader-test-signing-secret-at-least-32-bytes";
 const paragraph = "A detailed report describes the local community and its new public library. "
@@ -35,6 +76,16 @@ const input = `${encode({ alg: "RS256", kid: "reader-key" })}.${encode({
 const jwt = `${input}.${Buffer.from(await crypto.subtle.sign(
   "RSASSA-PKCS1-v1_5", keyPair.privateKey, new TextEncoder().encode(input),
 )).toString("base64url")}`;
+
+async function userToken(id: string) {
+  const unsigned = `${encode({ alg: "RS256", kid: "reader-key" })}.${encode({
+    iss: "https://reader-test.cloudflareaccess.com", aud: "reader-aud",
+    email: `${id}@example.com`, sub: id, exp: Math.floor(Date.now() / 1000) + 3600,
+  })}`;
+  return `${unsigned}.${Buffer.from(await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5", keyPair.privateKey, new TextEncoder().encode(unsigned),
+  )).toString("base64url")}`;
+}
 
 function env(extra: Record<string, unknown> = {}) {
   return {
@@ -658,10 +709,10 @@ test("translation DNS check repeats before idle retry and rejects newly private 
   const calls = upstream(t, (_url, init) => {
     assert.equal(init?.redirect, "manual");
     providerFailed = true;
-    return new Response("busy", { status: 429 });
+    return new Response("unavailable", { status: 503 });
   }, (url) => Response.json(dnsAnswer(url,
     providerFailed && new URL(url).searchParams.get("type") === "AAAA" ? ["::1"] : undefined)));
-  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
     env({ ...freeRoute, READER_TRANSLATIONS: kv }));
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, "UNSAFE_URL");
@@ -674,7 +725,7 @@ test("translation never follows a provider redirect with credentials or article 
     assert.equal(init?.redirect, "manual");
     return new Response(null, { status: 307, headers: { Location: "https://private.example/translate" } });
   });
-  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
     env({ ...freeRoute, MAGPIE_API_KEY: "reader-test-key", READER_TRANSLATIONS: new MemoryKV() }));
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, "MAGPIE_UNAVAILABLE");
@@ -716,7 +767,7 @@ for (const [label, access, clientId, clientSecret] of [
     const headers: Headers[] = [];
     const calls = upstream(t, (_url, init) => {
       headers.push(new Headers(init?.headers));
-      return Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
+      return Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] });
     });
     const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
       env({ ...freeRoute, ...access, MAGPIE_API_KEY: "reader-api-key", READER_TRANSLATIONS: new MemoryKV() }));
@@ -774,7 +825,7 @@ test("Magpie demonstrates zh and en, stores hash×language cache and skips provi
       translated: lang === "zh" ? "# 图书馆\n\n你好，世界。" : markdown,
       lang, cached: false, provider: "magpie",
     });
-    assert.ok(kv.entries.has(`tr:${hash}:${lang}`));
+    assert.ok(kv.entries.has(await translationCacheKey({ ...requestBody, retry: false }, {}, "editor")));
     // Even with all provider wiring absent, KV hits are returned without a provider call.
     const cached = await handleReader(post(requestBody, "translate"), env({ READER_TRANSLATIONS: kv }));
     assert.equal(cached.status, 200);
@@ -802,10 +853,10 @@ test("free group failure falls back once to idle without any default provider ch
   upstream(t, (_url, init) => {
     const model = JSON.parse(String(init?.body)).model;
     models.push(model);
-    return model === "group/reader-free" ? new Response("busy", { status: 429 })
-      : Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
+    return model === "group/reader-free" ? new Response("unavailable", { status: 503 })
+      : Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] });
   });
-  const response = await handleReader(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
     env({ ...freeRoute, READER_TRANSLATIONS: new MemoryKV() }));
   assert.equal(response.status, 200);
   assert.deepEqual(models, ["group/reader-free", "group/reader-idle"]);
@@ -834,7 +885,7 @@ test("exhausted free routes report 429, and empty/truncated translations never e
 });
 
 test("localhost Magpie is allowed only in dev, and production never tries loopback", async (t) => {
-  const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] }));
+  const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] }));
   const config = { ...freeRoute, MAGPIE_BASE_URL: "http://127.0.0.1:3425/v1", READER_TRANSLATIONS: new MemoryKV() };
   const body = { markdown, targetLang: "zh", contentHash: hash };
   assert.equal((await handleReader(post(body, "translate"), env({ ...config, NEWS_SENTRY_ENVIRONMENT: "production" }))).status, 503);
@@ -856,15 +907,15 @@ test("Workers AI requires both explicit fallback and free-only switches, and is 
     assert.equal(model, "@cf/meta/m2m100-1.2b");
     assert.equal(input.target_lang, "chinese");
     assert.equal(input.source_lang, "english");
-    return { translated_text: "图书馆，世界你好。" };
+    return { translated_text: "# 图书馆\n\n世界你好。" };
   } };
   const body = { markdown, targetLang: "zh", contentHash: hash, sourceLang: "en" };
   const config = { READER_TRANSLATIONS: new MemoryKV(), AI };
   for (const switches of [{}, { READER_WORKERS_AI: "1" }, { READER_WORKERS_AI_FREE_ONLY: "1" }]) {
-    assert.equal((await handleReader(post(body, "translate"), env({ ...config, ...switches }))).status, 503);
+    assert.equal((await handleTranslationProvider(post(body, "translate"), env({ ...config, ...switches }))).status, 503);
   }
   assert.equal(aiCalls, 0);
-  const response = await handleReader(post(body, "translate"), env({
+  const response = await handleTranslationProvider(post(body, "translate"), env({
     ...config, ...freeRoute, READER_WORKERS_AI: "1", READER_WORKERS_AI_FREE_ONLY: "1",
   }));
   assert.equal(response.status, 200);
@@ -901,7 +952,7 @@ test("translation validates reference images, reference links and autolinks by t
     const rejected = await handleReader(post(body, "translate"), env({ ...freeRoute, READER_TRANSLATIONS: kv }));
     assert.equal(rejected.status, 502, original);
     assert.equal((await rejected.json()).code, "TRANSLATION_INVALID");
-    assert.equal(kv.entries.has(`tr:${contentHash}:zh`), false);
+    assert.equal(kv.entries.has(await translationCacheKey({ ...body, retry: false }, {}, "editor")), false);
     output = original.replace("Library", "图书馆");
     const accepted = await handleReader(post(body, "translate"), env({ ...freeRoute, READER_TRANSLATIONS: kv }));
     assert.equal(accepted.status, 200);
@@ -911,22 +962,24 @@ test("translation validates reference images, reference links and autolinks by t
 
 test("cache hits return only translation contract fields", async (t) => {
   const kv = new MemoryKV();
-  kv.entries.set(`tr:${hash}:zh`, JSON.stringify({
-    translated: "你好。", lang: "zh", provider: "magpie", internal: "not public",
+  kv.entries.set(await translationCacheKey({
+    markdown, contentHash: hash, targetLang: "zh", retry: false,
+  }, {}, "editor"), JSON.stringify({
+    translated: "# 图书馆\n\n你好。", lang: "zh", provider: "magpie", internal: "not public",
   }));
   const calls = upstream(t, () => { throw Error("unexpected provider request"); });
   const response = await handleReader(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
     env({ READER_TRANSLATIONS: kv }));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    translated: "你好。", lang: "zh", provider: "magpie", cached: true,
+    translated: "# 图书馆\n\n你好。", lang: "zh", provider: "magpie", cached: true,
   });
   assert.deepEqual(calls, []);
 });
 
 test("malformed KV JSON is a cache miss and a valid free translation repairs it", async (t) => {
   const kv = new MemoryKV();
-  const key = `tr:${hash}:zh`;
+  const key = await translationCacheKey({ markdown, contentHash: hash, targetLang: "zh", retry: false }, {}, "editor");
   kv.entries.set(key, "{broken");
   const calls = upstream(t, () => Response.json({
     choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }],
@@ -954,4 +1007,41 @@ test("unavailable KV fails with 503 before any provider request", async (t) => {
     message: "翻译缓存暂不可用，请稍后重试。",
   });
   assert.deepEqual(calls, []);
+});
+
+test("async HTTP routes verify owner isolation, same-origin GET without Origin, and no GET enqueue/model calls", async (context) => {
+  const fixture = translationFixture(env());
+  context.after(() => fixture.sqlite.close());
+  const otherJwt = await userToken("other-editor");
+  const calls = upstream(context, () => { throw Error("GET/submit must not call model"); });
+  const submitted = await handleReaderRoute(post({ markdown, contentHash: hash, targetLang: "zh", owner: "forged" }, "translate"),
+    fixture.env as ReaderEnv);
+  assert.equal(submitted.status, 202);
+  const own = await submitted.json();
+  assert.equal(own.status, "queued");
+  assert.equal(fixture.queue.length, 1);
+  function query(token = jwt, extra: Record<string, string> = {}) {
+    return new Request(`${origin}/api/v1/reader/translate/${own.jobId}`, {
+      headers: { Cookie: `CF_Authorization=${token}`, "Sec-Fetch-Site": "same-origin", ...extra },
+    });
+  }
+  const other = await handleReaderRoute(query(otherJwt), fixture.env as ReaderEnv);
+  assert.equal(other.status, 404);
+  assert.deepEqual(await other.json(), {
+    error: "TRANSLATION_JOB_NOT_FOUND", code: "TRANSLATION_JOB_NOT_FOUND", message: "翻译任务不存在。",
+  });
+  const result = await handleReaderRoute(query(), fixture.env as ReaderEnv);
+  assert.equal(result.status, 202);
+  assert.equal((await result.json()).jobId, own.jobId);
+  assert.equal(result.headers.get("Cache-Control"), "no-store");
+  for (const headers of [
+    { Cookie: "" }, { Origin: "https://evil.example" }, { "Sec-Fetch-Site": "cross-site" },
+  ]) {
+    const rejected = await handleReaderRoute(query(jwt, headers), fixture.env as ReaderEnv);
+    assert.equal(rejected.status, 403);
+  }
+  assert.equal(fixture.queue.length, 1);
+  assert.deepEqual(calls, []);
+  const stored = fixture.sqlite.prepare("SELECT owner FROM reader_translation_jobs WHERE id = ?").get(own.jobId);
+  assert.equal(stored.owner, "editor");
 });

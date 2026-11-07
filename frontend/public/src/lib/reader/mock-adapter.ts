@@ -56,13 +56,24 @@ export function createMockReaderAdapter(state = ""): ReaderAdapter {
       const failed = mockImageUrl.replace("harbour.png", "missing.png")
       return { ...mockArticle, markdown: mockArticle.markdown.split(mockImageUrl).join(failed), images: mockArticle.images.map((image) => ({ ...image, proxyUrl: failed })) }
     },
-    async translate(input, signal) {
-      await pause(state === "translate-loading" ? 30_000 : 160, signal)
+    async translate(input, signal, context) {
+      const progress = { jobId: "local-fixture", attemptCount: input.retry ? 2 : 1 }
+      context?.onProgress?.({ ...progress, status: "queued" })
+      await pause(state === "translate-queued" ? 30_000 : 40, signal)
+      context?.onProgress?.({ ...progress, status: "running" })
+      await pause(state === "translate-loading" ? 30_000 : 120, signal)
       if (state === "translate-unavailable") throw new ReaderApiError(503, "TRANSLATION_UNAVAILABLE", "Local fixture")
+      if (!input.retry && (state === "translate-failed" || state === "translate-timed-out")) {
+        const status = state === "translate-failed" ? "failed" : "timed_out"
+        context?.onProgress?.({ ...progress, status, code: "TRANSLATION_FAILED", message: "Local fixture" })
+        throw new ReaderApiError(503, "TRANSLATION_FAILED", "Local fixture", status)
+      }
       const locale = asReaderLocale(input.targetLang) ?? "zh"
       let translated = markdown(locale)
       if (state === "image-fail") translated = translated.split(mockImageUrl).join(mockImageUrl.replace("harbour.png", "missing.png"))
-      return { translated, lang: locale, cached: false, provider: "local-fixture" }
+      const result = { translated, lang: locale, cached: false, provider: "local-fixture" }
+      context?.onProgress?.({ ...progress, ...result, status: "succeeded" })
+      return result
     },
   }
 }
